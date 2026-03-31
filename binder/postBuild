@@ -1,0 +1,62 @@
+#!/bin/bash
+echo "========================================="
+echo "TP Viking Graben - Données réelles"
+echo "Installation des dépendances"
+echo "========================================="
+
+mkdir -p data
+
+# Création d'un jeu de données synthétique réaliste comme fallback
+python3 - << 'PYEOF'
+import numpy as np
+import segyio
+import os
+
+print("Création du jeu de données fallback...")
+
+ntraces = 200
+nsamples = 800
+dt = 0.004
+time = np.arange(nsamples) * dt
+
+# Réflecteurs typiques d'un graben
+reflectors = [
+    (0.15, 0.25, -5), (0.35, -0.20, 8), (0.55, 0.30, -3),
+    (0.75, -0.25, 12), (0.95, 0.35, -8), (1.20, -0.30, 5),
+    (1.50, 0.20, -2), (1.80, -0.15, 0),
+]
+
+# Ondelette Ricker
+t_w = np.arange(-0.1, 0.1, dt)
+wavelet = (1 - 2*(np.pi*25*t_w)**2) * np.exp(-(np.pi*25*t_w)**2)
+
+# Construction des traces
+data = np.zeros((nsamples, ntraces))
+for itrace in range(ntraces):
+    offset = itrace * 25
+    trace = np.zeros(nsamples)
+    for t0, amp, slope in reflectors:
+        t = t0 + offset * slope / 10000
+        idx = int(t / dt)
+        if 0 <= idx < nsamples:
+            trace[idx] = amp
+    trace = np.convolve(trace, wavelet, mode='same')
+    trace += np.random.randn(nsamples) * 0.03
+    data[:, itrace] = trace
+
+# Sauvegarde
+os.makedirs('data', exist_ok=True)
+with segyio.create('data/viking_graben_fallback.segy', nsamples) as f:
+    f.trace = data.T
+    f.bin = {segyio.BinField.Samples: nsamples,
+             segyio.BinField.Interval: int(dt*1e6)}
+    for i in range(ntraces):
+        f.header[i] = {segyio.TraceField.TRACE_SEQUENCE_LINE: i,
+                       segyio.TraceField.SourceX: i*25,
+                       segyio.TraceField.GroupX: i*25}
+
+print(f"✅ Données fallback créées: {ntraces} traces x {nsamples} échantillons")
+PYEOF
+
+echo ""
+echo "✅ Setup terminé !"
